@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QLineEdit, QFileDialog, QRadioButton,
     QGroupBox, QSlider, QCheckBox, QSizePolicy, QSpacerItem, QMessageBox,
-    QButtonGroup
+    QButtonGroup, QScrollArea
 )
 from PySide6.QtGui import QPixmap, QImage, QIcon
 from PySide6.QtCore import Qt, Signal, Slot, QObject, QSize, QMetaObject, Q_ARG # Import QMetaObject, Q_ARG
@@ -263,10 +263,17 @@ class TrackingAppGUI(QMainWindow):
 
     def init_ui(self):
         """Create and arrange UI elements."""
-        # --- Identical to the previous QThread version ---
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout(central_widget)
+        # Create a widget to hold all content
+        content_widget = QWidget()
+        main_layout = QVBoxLayout(content_widget)
+
+        # Create a scroll area and set the content widget as its widget
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)  # Allow the widget to resize
+        scroll_area.setWidget(content_widget)
+        
+        # Set the scroll area as the central widget
+        self.setCentralWidget(scroll_area)
 
         # Configuration Group
         config_group = QGroupBox("Configuration")
@@ -346,9 +353,32 @@ class TrackingAppGUI(QMainWindow):
         self.iou_slider.valueChanged.connect(lambda val: self.iou_label.setText(f"{val/100.0:.2f}"))
         param_layout.addWidget(self.iou_slider); param_layout.addWidget(self.iou_label)
         param_layout.addSpacerItem(QSpacerItem(20, 10))
-        param_layout.addWidget(QLabel("Classes:"))
-        self.classes_entry = QLineEdit("car,motorbike,person")
-        param_layout.addWidget(self.classes_entry)
+        # Class selection group
+        class_group = QGroupBox("Classes")
+        class_layout = QHBoxLayout()
+
+        # Create separate checkboxes for common classes
+        self.class_car = QCheckBox("Car")
+        self.class_car.setChecked(True)
+        self.class_motorbike = QCheckBox("Motorbike")
+        self.class_motorbike.setChecked(True)
+        self.class_person = QCheckBox("Person")
+        self.class_person.setChecked(True)
+
+        # Add classes to layout
+        class_layout.addWidget(self.class_car)
+        class_layout.addWidget(self.class_motorbike)
+        class_layout.addWidget(self.class_person)
+
+        # Optional: Add a "Custom" option with text entry
+        class_layout.addWidget(QLabel("Custom:"))
+        self.custom_class_entry = QLineEdit()
+        self.custom_class_entry.setPlaceholderText("Add other classes (comma-separated)")
+        self.custom_class_entry.setFixedWidth(200)
+        class_layout.addWidget(self.custom_class_entry)
+
+        class_group.setLayout(class_layout)
+        config_layout.addWidget(class_group)
         param_layout.addSpacerItem(QSpacerItem(20, 10))
         self.save_frames_check = QCheckBox("Save Frames")
         param_layout.addWidget(self.save_frames_check)
@@ -524,17 +554,29 @@ class TrackingAppGUI(QMainWindow):
              return
 
         # --- Get Values and Validate (Identical to previous version) ---
+        # --- Get Values and Validate ---
         model_path = self.model_entry.text(); output_dir = self.output_entry.text()
-        classes_str = self.classes_entry.text(); conf = self.conf_slider.value() / 100.0
+        # Collect selected classes
+        class_list = []
+        if self.class_car.isChecked(): class_list.append("car")
+        if self.class_motorbike.isChecked(): class_list.append("motorbike")
+        if self.class_person.isChecked(): class_list.append("person")
+
+        # Add custom classes if specified
+        if self.custom_class_entry.text().strip():
+            custom_classes = [cls.strip() for cls in self.custom_class_entry.text().split(',') if cls.strip()]
+            class_list.extend(custom_classes)
+
+        if not class_list:
+            QMessageBox.critical(self, "Error", "Please select at least one class."); return
+
+        conf = self.conf_slider.value() / 100.0
         iou = self.iou_slider.value() / 100.0; save_frames = self.save_frames_check.isChecked()
         if not model_path or not os.path.exists(model_path):
             QMessageBox.critical(self, "Error", "Please select a valid ONNX model file."); return
         if not output_dir: QMessageBox.critical(self, "Error", "Please select an output directory."); return
-        if not classes_str: QMessageBox.critical(self, "Error", "Please enter class names."); return
-        try:
-            class_list = [name.strip() for name in classes_str.split(',') if name.strip()]
-            if not class_list: raise ValueError("No valid classes found.")
-        except Exception as e: QMessageBox.critical(self, "Error", f"Invalid class names format: {e}"); return
+        if not class_list:
+            QMessageBox.critical(self, "Error", "Please select at least one class."); return
         input_path = None; camera_id = -1; is_live = False; process_images = False
         if self.radio_camera.isChecked():
             try: camera_id = int(self.cam_id_entry.text()); is_live = True
