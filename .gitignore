@@ -211,3 +211,5 @@ runs/ # YOLOv8 training/export runs
 
 deep_sort/
 deep_sort_pytorch/
+
+output_onnx/
